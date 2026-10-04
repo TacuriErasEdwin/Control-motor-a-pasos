@@ -1,0 +1,163 @@
+
+
+// ======================================================
+// PRUEBA DE DOBLEZ - 50 PASOS
+// Arduino Mega 2560
+// ======================================================
+
+// ---------------- PINES ----------------
+
+const byte DIR = 7;
+const byte STEP = 3;
+
+const byte START = 11;
+const byte REFERENCIAR = 12;
+
+const byte FIN_CERO = 22;
+
+
+// ---------------- MOTOR ----------------
+
+const int PASOS_VUELTA = 200;
+const unsigned int tiempoPulso = 1500;
+
+
+// ======================================================
+// DAR UN PASO
+// ======================================================
+
+void darPaso()
+{
+  digitalWrite(STEP, HIGH);
+  delayMicroseconds(tiempoPulso);
+
+  digitalWrite(STEP, LOW);
+  delayMicroseconds(tiempoPulso);
+}
+
+
+// ======================================================
+// REFERENCIAR
+// ======================================================
+
+void referenciar()
+{
+  // Si ya está activado el final de carrera,
+  // alejarnos hacia la izquierda
+
+  if (digitalRead(FIN_CERO) == LOW)
+  {
+    digitalWrite(DIR, LOW);
+
+    while (digitalRead(FIN_CERO) == LOW)
+    {
+      darPaso();
+    }
+
+    delay(200);
+  }
+
+
+  // Buscar el final de carrera hacia la derecha
+
+  digitalWrite(DIR, HIGH);
+
+  while (digitalRead(FIN_CERO) == HIGH)
+  {
+    darPaso();
+  }
+
+  digitalWrite(STEP, LOW);
+
+  delay(200);
+
+
+  // Retroceder 10 pasos
+
+  digitalWrite(DIR, LOW);
+
+  for (int i = 0; i < 10; i++)
+  {
+    darPaso();
+  }
+
+  digitalWrite(STEP, LOW);
+}
+
+
+// ======================================================
+// PRUEBA DE DOBLEZ
+// ======================================================
+
+void pruebaDoblez()
+{
+  // Dirección del doblez
+  digitalWrite(DIR, HIGH);
+
+  // 50 pasos
+  for (int i = 0; i < 50; i++)
+  {
+    darPaso();
+  }
+
+  digitalWrite(STEP, LOW);
+}
+
+
+// ======================================================
+// CONFIGURACIÓN
+// ======================================================
+
+void setup()
+{
+  pinMode(DIR, OUTPUT);
+  pinMode(STEP, OUTPUT);
+
+  pinMode(START, INPUT_PULLUP);
+  pinMode(REFERENCIAR, INPUT_PULLUP);
+
+  pinMode(FIN_CERO, INPUT_PULLUP);
+
+  digitalWrite(STEP, LOW);
+  digitalWrite(DIR, LOW);
+}
+
+
+// ======================================================
+// PROGRAMA PRINCIPAL
+// ======================================================
+
+void loop()
+{
+  // ----------------------------------------------------
+  // REFERENCIAR
+  // ----------------------------------------------------
+
+  if (digitalRead(REFERENCIAR) == LOW)
+  {
+    referenciar();
+
+    // Esperar que se suelte el pulsador
+    while (digitalRead(REFERENCIAR) == LOW)
+    {
+      delay(10);
+    }
+  }
+
+
+  // ----------------------------------------------------
+  // START
+  // ----------------------------------------------------
+
+  if (digitalRead(START) == LOW)
+  {
+    // Ejecutar prueba de 50 pasos
+    pruebaDoblez();
+
+    // Esperar que se suelte START
+    while (digitalRead(START) == LOW)
+    {
+      delay(10);
+    }
+  }
+}
