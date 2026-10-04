@@ -1,0 +1,429 @@
+
+// ============================================================
+// MAQUETA DE ESTRIBOS - ARDUINO MEGA 2560
+// Motor paso a paso + HY-DIV268N-5A
+//
+// FUNCIONAMIENTO:
+//
+// MANUAL:
+//   IZQUIERDA = mueve a la izquierda
+//   DERECHA   = mueve a la derecha
+//
+// REFERENCIACION:
+//   REFERENCIAR -> busca el final de carrera
+//   Al terminar, queda habilitado START
+//
+// AUTOMATICO:
+//   START -> ejecuta:
+//       90°
+//       90°
+//       90°
+//       90°
+//       135°
+//
+// Al terminar el ciclo:
+//   START queda BLOQUEADO.
+//
+// Para volver a trabajar:
+//   REFERENCIAR nuevamente.
+//
+// ============================================================
+
+
+// -------------------- PINES --------------------
+
+const int DIR = 7;
+const int STEP = 3;
+
+const int MANUAL_AUTO = 10;
+
+const int IZQUIERDA = 8;
+const int DERECHA = 9;
+
+const int START = 11;
+const int REFERENCIAR = 12;
+
+const int FIN_CERO = 22;
+
+
+// -------------------- PARAMETROS --------------------
+
+const int PASOS_VUELTA = 200;
+
+// Según la prueba realizada:
+// 50 pasos = 90°
+const int PASOS_90 = 50;
+
+// 135° = 75 pasos
+const int PASOS_135 = 75;
+
+// Tiempo del pulso del motor
+const int tiempoPulso = 1500;
+
+
+// -------------------- ESTADOS --------------------
+
+// false = todavía no está referenciado
+// true  = referencia realizada y START habilitado
+bool referenciado = false;
+
+
+// ============================================================
+// FUNCION PARA DAR UN PASO
+// ============================================================
+
+void darPaso()
+{
+  digitalWrite(STEP, HIGH);
+  delayMicroseconds(tiempoPulso);
+
+  digitalWrite(STEP, LOW);
+  delayMicroseconds(tiempoPulso);
+}
+
+
+// ============================================================
+// REFERENCIACION
+// ============================================================
+
+bool referenciar()
+{
+  Serial.println("INICIANDO REFERENCIACION...");
+
+
+  // ----------------------------------------------------------
+  // CASO 1:
+  // Si ya está presionado el final de carrera,
+  // primero nos alejamos de él.
+  // ----------------------------------------------------------
+
+  if (digitalRead(FIN_CERO) == LOW)
+  {
+    Serial.println("Final de carrera activo.");
+    Serial.println("Alejando del final de carrera...");
+
+    digitalWrite(DIR, LOW);
+
+    while (digitalRead(FIN_CERO) == LOW)
+    {
+      darPaso();
+    }
+
+    delay(200);
+  }
+
+
+  // ----------------------------------------------------------
+  // CASO 2:
+  // Buscar nuevamente el final de carrera.
+  // ----------------------------------------------------------
+
+  Serial.println("Buscando posicion cero...");
+
+  digitalWrite(DIR, HIGH);
+
+  while (digitalRead(FIN_CERO) == HIGH)
+  {
+    darPaso();
+  }
+
+
+  // Detener motor
+  digitalWrite(STEP, LOW);
+
+  delay(200);
+
+
+  // ----------------------------------------------------------
+  // CASO 3:
+  // Retroceder 10 pasos para liberar el final de carrera.
+  // ----------------------------------------------------------
+
+  Serial.println("Liberando final de carrera...");
+
+  digitalWrite(DIR, LOW);
+
+  for (int i = 0; i < 10; i++)
+  {
+    darPaso();
+  }
+
+
+  digitalWrite(STEP, LOW);
+
+  Serial.println("REFERENCIACION TERMINADA.");
+  Serial.println("START HABILITADO.");
+
+  return true;
+}
+
+
+// ============================================================
+// MODO MANUAL
+// ============================================================
+
+void modoManual()
+{
+  // ---------------- IZQUIERDA ----------------
+
+  if (digitalRead(IZQUIERDA) == LOW)
+  {
+    digitalWrite(DIR, LOW);
+
+    darPaso();
+  }
+
+
+  // ---------------- DERECHA ----------------
+
+  else if (digitalRead(DERECHA) == LOW)
+  {
+    digitalWrite(DIR, HIGH);
+
+    darPaso();
+  }
+
+
+  // ---------------- NINGUN PULSANTE ----------------
+
+  else
+  {
+    digitalWrite(STEP, LOW);
+  }
+}
+
+
+// ============================================================
+// DOBLAR 90 GRADOS
+// ============================================================
+
+void doblar90()
+{
+  Serial.println("Doblando 90 grados...");
+
+  digitalWrite(DIR, HIGH);
+
+  for (int i = 0; i < PASOS_90; i++)
+  {
+    darPaso();
+  }
+
+  digitalWrite(STEP, LOW);
+
+  delay(500);
+}
+
+
+// ============================================================
+// DOBLAR 135 GRADOS
+// ============================================================
+
+void doblar135()
+{
+  Serial.println("Doblando 135 grados...");
+
+  digitalWrite(DIR, HIGH);
+
+  for (int i = 0; i < PASOS_135; i++)
+  {
+    darPaso();
+  }
+
+  digitalWrite(STEP, LOW);
+
+  delay(500);
+}
+
+
+// ============================================================
+// CICLO COMPLETO DEL ESTRIBO
+// ============================================================
+
+void fabricarEstribo()
+{
+  Serial.println("----------------------------");
+  Serial.println("INICIANDO CICLO");
+  Serial.println("----------------------------");
+
+
+  // 1
+  doblar90();
+
+
+  // 2
+  doblar90();
+
+
+  // 3
+  doblar90();
+
+
+  // 4
+  doblar90();
+
+
+  // 5
+  doblar135();
+
+
+  digitalWrite(STEP, LOW);
+
+
+  Serial.println("----------------------------");
+  Serial.println("CICLO TERMINADO");
+  Serial.println("----------------------------");
+}
+
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup()
+{
+  Serial.begin(9600);
+
+
+  // Motor
+  pinMode(DIR, OUTPUT);
+  pinMode(STEP, OUTPUT);
+
+
+  // Selector Manual / Automatico
+  pinMode(MANUAL_AUTO, INPUT_PULLUP);
+
+
+  // Pulsantes
+  pinMode(IZQUIERDA, INPUT_PULLUP);
+  pinMode(DERECHA, INPUT_PULLUP);
+  pinMode(START, INPUT_PULLUP);
+  pinMode(REFERENCIAR, INPUT_PULLUP);
+
+
+  // Final de carrera
+  pinMode(FIN_CERO, INPUT_PULLUP);
+
+
+  // Motor detenido
+  digitalWrite(STEP, LOW);
+
+
+  Serial.println("=================================");
+  Serial.println(" MAQUETA DE ESTRIBOS");
+  Serial.println(" ARDUINO MEGA 2560");
+  Serial.println("=================================");
+  Serial.println();
+
+  Serial.println("Sistema SIN REFERENCIAR.");
+  Serial.println("Pulse REFERENCIAR para establecer cero.");
+}
+
+
+// ============================================================
+// LOOP PRINCIPAL
+// ============================================================
+
+void loop()
+{
+  // ==========================================================
+  // MODO MANUAL
+  // ==========================================================
+
+  if (digitalRead(MANUAL_AUTO) == LOW)
+  {
+    modoManual();
+
+    return;
+  }
+
+
+  // ==========================================================
+  // MODO AUTOMATICO
+  // ==========================================================
+
+
+  // ----------------------------------------------------------
+  // REFERENCIAR
+  // ----------------------------------------------------------
+
+  if (digitalRead(REFERENCIAR) == LOW)
+  {
+    delay(50);
+
+    // Esperar que se suelte el pulsante
+    while (digitalRead(REFERENCIAR) == LOW)
+    {
+      delay(10);
+    }
+
+    referenciado = referenciar();
+
+    delay(200);
+
+    return;
+  }
+
+
+  // ----------------------------------------------------------
+  // START
+  // ----------------------------------------------------------
+  //
+  // START solamente funciona si:
+  //
+  // referenciado == true
+  //
+  // Si el ciclo ya terminó:
+  //
+  // referenciado = false
+  //
+  // Por lo tanto START queda bloqueado.
+  // ----------------------------------------------------------
+
+  if (digitalRead(START) == LOW && referenciado == true)
+  {
+    delay(50);
+
+    // Esperar que se suelte START
+    while (digitalRead(START) == LOW)
+    {
+      delay(10);
+    }
+
+
+    // Ejecutar ciclo
+    fabricarEstribo();
+
+
+    // --------------------------------------------------------
+    // IMPORTANTE:
+    //
+    // Después del ciclo la posición cambió.
+    // Por seguridad lógica, ya NO estamos referenciados.
+    //
+    // START queda bloqueado.
+    // --------------------------------------------------------
+
+    referenciado = false;
+
+
+    Serial.println();
+    Serial.println("START BLOQUEADO.");
+    Serial.println("Debe REFERENCIAR nuevamente.");
+    Serial.println();
+
+    delay(300);
+
+    return;
+  }
+
+
+  // ----------------------------------------------------------
+  // Si no está referenciado, START no hace nada.
+  // ----------------------------------------------------------
+
+  if (referenciado == false)
+  {
+    digitalWrite(STEP, LOW);
+  }
+}
+
