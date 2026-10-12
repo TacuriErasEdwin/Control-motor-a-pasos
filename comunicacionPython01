@@ -1,0 +1,312 @@
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+import serial
+import threading
+import time
+
+# Configuración
+PUERTO = "COM8"  # Cambia al puerto real de tu Arduino
+BAUDIOS = 9600
+MAX_PASOS = 2000
+
+secuencia = []
+ocupado = False
+
+
+def actualizar_estado(mensaje):
+    ventana.after(0, estado.set, mensaje)
+
+
+def agregar_movimiento():
+    direccion = direccion_var.get()
+    try:
+        pasos = int(pasos_var.get())
+    except ValueError:
+        messagebox.showerror("Error", "Ingresa un número de pasos válido.")
+        return
+
+    if pasos < 1 or pasos > MAX_PASOS:
+        messagebox.showwarning(
+            "Límite de pasos",
+            f"Ingresa entre 1 y {MAX_PASOS} pasos por movimiento."
+        )
+        return
+
+    secuencia.append((direccion, pasos))
+    tabla.insert(
+        "", "end",
+        values=(
+            len(secuencia),
+            "Derecha" if direccion == "R" else "Izquierda",
+            pasos
+        )
+    )
+
+
+def eliminar_movimiento():
+    seleccion = tabla.selection()
+    if not seleccion:
+        messagebox.showinfo(
+            "Seleccionar movimiento",
+            "Selecciona un movimiento para eliminar."
+        )
+        return
+
+    indices = sorted(
+        [tabla.index(item) for item in seleccion],
+        reverse=True
+    )
+
+    for indice in indices:
+        del secuencia[indice]
+
+    refrescar_tabla()
+
+
+def limpiar_secuencia():
+    if ocupado:
+        return
+
+    secuencia.clear()
+    refrescar_tabla()
+    estado.set("Secuencia vacía")
+
+
+def refrescar_tabla():
+    for item in tabla.get_children():
+        tabla.delete(item)
+
+    for numero, (direccion, pasos) in enumerate(secuencia, start=1):
+        nombre = "Derecha" if direccion == "R" else "Izquierda"
+        tabla.insert("", "end", values=(numero, nombre, pasos))
+
+
+def enviar_secuencia():
+    global ocupado
+
+    if ocupado:
+        return
+
+    if not secuencia:
+        messagebox.showwarning(
+            "Sin movimientos",
+            "Agrega al menos un movimiento."
+        )
+        return
+
+    movimientos = list(secuencia)
+    puerto = puerto_var.get().strip()
+
+    if not puerto:
+        messagebox.showerror("Error", "Indica el puerto COM.")
+        return
+
+    ocupado = True
+    boton_enviar.config(state="disabled")
+    boton_agregar.config(state="disabled")
+    boton_eliminar.config(state="disabled")
+    boton_limpiar.config(state="disabled")
+
+    threading.Thread(
+        target=ejecutar_secuencia,
+        args=(puerto, movimientos),
+        daemon=True
+    ).start()
+
+
+def ejecutar_secuencia(puerto, movimientos):
+    global ocupado
+
+    try:
+        with serial.Serial(
+            puerto, BAUDIOS, timeout=12, write_timeout=3
+        ) as arduino:
+
+            # Al abrir el puerto, el Mega puede reiniciarse
+            time.sleep(2)
+            arduino.reset_input_buffer()
+
+            total = len(movimientos)
+
+            for numero, (direccion, pasos) in enumerate(
+                movimientos, start=1
+            ):
+                comando = f"{direccion},{pasos}\n"
+                arduino.write(comando.encode("utf-8"))
+                arduino.flush()
+
+                actualizar_estado(
+                    f"Movimiento {numero}/{total}: esperando Arduino..."
+                )
+
+                confirmado = False
+                inicio = time.monotonic()
+
+                while time.monotonic() - inicio < 15:
+                    respuesta = arduino.readline().decode(
+                        "utf-8", errors="replace"
+                    ).strip()
+
+                    if not respuesta:
+                        continue
+
+                    actualizar_estado(f"Arduino: {respuesta}")
+
+                    if respuesta.startswith("ERROR:"):
+                        raise RuntimeError(respuesta)
+
+                    if respuesta == f"OK {direccion},{pasos}":
+                        confirmado = True
+                        break
+
+                if not confirmado:
+                    raise TimeoutError(
+                        f"Sin confirmación del movimiento {numero}. "
+                        "Verifica el Arduino antes de reintentar."
+                    )
+
+            actualizar_estado("Secuencia completada.")
+            ventana.after(
+                0,
+                lambda: messagebox.showinfo(
+                    "Finalizado",
+                    "El Arduino confirmó todos los movimientos."
+                )
+            )
+
+    except Exception as error:
+        actualizar_estado(f"Error: {error}")
+        ventana.after(
+            0,
+            lambda mensaje=str(error): messagebox.showerror(
+                "Error de comunicación",
+                mensaje
+            )
+        )
+
+    finally:
+        ocupado = False
+        ventana.after(0, habilitar_botones)
+
+
+def habilitar_botones():
+    boton_enviar.config(state="normal")
+    boton_agregar.config(state="normal")
+    boton_eliminar.config(state="normal")
+    boton_limpiar.config(state="normal")
+
+
+# Crear ventana
+ventana = tk.Tk()
+ventana.title("Control de motor - Arduino Mega")
+ventana.geometry("600x520")
+ventana.minsize(500, 450)
+
+marco = ttk.Frame(ventana, padding=15)
+marco.pack(fill="both", expand=True)
+
+ttk.Label(
+    marco,
+    text="GENERADOR DE SECUENCIAS",
+    font=("Arial", 15, "bold")
+).pack(anchor="w", pady=(0, 12))
+
+fila_puerto = ttk.Frame(marco)
+fila_puerto.pack(fill="x", pady=4)
+
+ttk.Label(fila_puerto, text="Puerto COM:").pack(side="left")
+
+puerto_var = tk.StringVar(value=PUERTO)
+ttk.Entry(
+    fila_puerto, textvariable=puerto_var, width=12
+).pack(side="left", padx=8)
+
+fila_movimiento = ttk.LabelFrame(
+    marco, text="Nuevo movimiento", padding=10
+)
+fila_movimiento.pack(fill="x", pady=10)
+
+ttk.Label(fila_movimiento, text="Dirección:").grid(
+    row=0, column=0, sticky="w", padx=5, pady=5
+)
+
+direccion_var = tk.StringVar(value="R")
+ttk.Combobox(
+    fila_movimiento,
+    textvariable=direccion_var,
+    values=("R", "L"),
+    state="readonly",
+    width=12
+).grid(row=0, column=1, padx=5, pady=5)
+
+ttk.Label(
+    fila_movimiento,
+    text="R = Derecha | L = Izquierda"
+).grid(row=0, column=2, padx=5, pady=5)
+
+ttk.Label(fila_movimiento, text="Pasos:").grid(
+    row=1, column=0, sticky="w", padx=5, pady=5
+)
+
+pasos_var = tk.StringVar(value="200")
+ttk.Entry(
+    fila_movimiento, textvariable=pasos_var, width=15
+).grid(row=1, column=1, padx=5, pady=5)
+
+boton_agregar = ttk.Button(
+    fila_movimiento,
+    text="Agregar movimiento",
+    command=agregar_movimiento
+)
+boton_agregar.grid(row=1, column=2, padx=5, pady=5)
+
+ttk.Label(marco, text="Movimientos programados:").pack(
+    anchor="w", pady=(5, 3)
+)
+
+columnas = ("numero", "direccion", "pasos")
+tabla = ttk.Treeview(
+    marco, columns=columnas, show="headings", height=9,
+    selectmode="extended"
+)
+tabla.heading("numero", text="N.º")
+tabla.heading("direccion", text="Dirección")
+tabla.heading("pasos", text="Pasos")
+
+tabla.column("numero", width=50, anchor="center")
+tabla.column("direccion", width=180, anchor="center")
+tabla.column("pasos", width=120, anchor="center")
+
+tabla.pack(fill="both", expand=True)
+
+fila_botones = ttk.Frame(marco)
+fila_botones.pack(fill="x", pady=10)
+
+boton_eliminar = ttk.Button(
+    fila_botones,
+    text="Eliminar seleccionado",
+    command=eliminar_movimiento
+)
+boton_eliminar.pack(side="left", padx=(0, 5))
+
+boton_limpiar = ttk.Button(
+    fila_botones,
+    text="Limpiar",
+    command=limpiar_secuencia
+)
+boton_limpiar.pack(side="left")
+
+boton_enviar = ttk.Button(
+    fila_botones,
+    text="ENVIAR SECUENCIA",
+    command=enviar_secuencia
+)
+boton_enviar.pack(side="right")
+
+estado = tk.StringVar(value="Preparado")
+ttk.Label(
+    marco, textvariable=estado, wraplength=550
+).pack(anchor="w", pady=5)
+
+ventana.mainloop()
